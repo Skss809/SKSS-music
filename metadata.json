@@ -1,0 +1,5 @@
+{
+  "name": "SKSS Music",
+  "description": "A modern music player that supports audio and short video files, with custom cover art.",
+  "requestFramePermissions": []
+}

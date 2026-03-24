@@ -1,0 +1,22 @@
+{
+  "name": "SKSS Music",
+  "short_name": "SKSS Music",
+  "description": "A modern music player that supports audio and short video files.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#030303",
+  "theme_color": "#030303",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/skss/192/192",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "https://picsum.photos/seed/skss/512/512",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

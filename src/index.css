@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@keyframes drift {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(100vw); }
+}
+
+@keyframes wind {
+  0% { transform: translateX(-100vw) skewX(-15deg); opacity: 0; }
+  10% { opacity: 0.5; }
+  90% { opacity: 0.5; }
+  100% { transform: translateX(100vw) skewX(-15deg); opacity: 0; }
+}
+
+@keyframes wave {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}

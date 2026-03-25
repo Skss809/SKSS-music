@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Image as ImageIcon, Plus, Music, Video, Trash2, Shuffle, Repeat, Repeat1, Disc3, Cloud, Wind, Droplets, Sun, Monitor, X, ChevronDown, ListMusic, Search, Globe, Library, Loader2, Download, Check } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Image as ImageIcon, Plus, Music, Video, Trash2, Shuffle, Repeat, Repeat1, Disc3, Cloud, Wind, Droplets, Sun, Monitor, X, ChevronDown, ListMusic, Search, Globe, Library, Loader2, Download, Check, Rewind, FastForward } from 'lucide-react';
 import { get, set } from 'idb-keyval';
 import { formatTime, cn } from './lib/utils';
 import { Track, BgAnimation } from './types';
@@ -84,6 +84,7 @@ export default function App() {
   const [isLoaded, setIsLoaded] = useState(false);
   
   const [activeTab, setActiveTab] = useState<'local' | 'online'>('local');
+  const [onlineSource, setOnlineSource] = useState<'audius' | 'jamendo'>('audius');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Track[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -305,33 +306,51 @@ export default function App() {
     setIsPlayerOpen(true);
   };
 
-  const searchAudius = async (e: React.FormEvent) => {
+  const searchOnline = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!searchQuery.trim()) return;
     
     setIsSearching(true);
     try {
-      const hostRes = await fetch('https://api.audius.co');
-      const hostData = await hostRes.json();
-      const host = hostData.data[0];
+      if (onlineSource === 'audius') {
+        const hostRes = await fetch('https://api.audius.co');
+        const hostData = await hostRes.json();
+        const host = hostData.data[0];
 
-      const res = await fetch(`${host}/v1/tracks/search?query=${encodeURIComponent(searchQuery)}&app_name=SKSSMusic`);
-      const data = await res.json();
+        const res = await fetch(`${host}/v1/tracks/search?query=${encodeURIComponent(searchQuery)}&app_name=SKSSMusic`);
+        const data = await res.json();
 
-      const results: Track[] = data.data.map((t: any) => ({
-        id: `audius-${t.id}`,
-        title: t.title,
-        artist: t.user.name,
-        duration: t.duration,
-        audioUrl: `${host}/v1/tracks/${t.id}/stream?app_name=SKSSMusic`,
-        coverUrl: t.artwork ? t.artwork['480x480'] || t.artwork['150x150'] : undefined,
-        isVideo: false,
-        isOnline: true,
-        bgAnimation: 'none'
-      }));
-      setSearchResults(results);
+        const results: Track[] = data.data.map((t: any) => ({
+          id: `audius-${t.id}`,
+          title: t.title,
+          artist: t.user.name,
+          duration: t.duration,
+          audioUrl: `${host}/v1/tracks/${t.id}/stream?app_name=SKSSMusic`,
+          coverUrl: t.artwork ? t.artwork['480x480'] || t.artwork['150x150'] : undefined,
+          isVideo: false,
+          isOnline: true,
+          bgAnimation: 'none'
+        }));
+        setSearchResults(results);
+      } else {
+        const res = await fetch(`https://api.jamendo.com/v3.0/tracks/?client_id=c9cb2a0a&format=json&limit=20&search=${encodeURIComponent(searchQuery)}`);
+        const data = await res.json();
+
+        const results: Track[] = data.results.map((t: any) => ({
+          id: `jamendo-${t.id}`,
+          title: t.name,
+          artist: t.artist_name,
+          duration: t.duration,
+          audioUrl: t.audio,
+          coverUrl: t.image,
+          isVideo: false,
+          isOnline: true,
+          bgAnimation: 'none'
+        }));
+        setSearchResults(results);
+      }
     } catch (e) {
-      console.error("Audius search failed", e);
+      console.error(`${onlineSource} search failed`, e);
     } finally {
       setIsSearching(false);
     }
@@ -343,6 +362,20 @@ export default function App() {
       setCurrentIndex(0);
       setIsPlaying(true);
       setIsPlayerOpen(true);
+    }
+  };
+
+  const handleSkipBackward = () => {
+    if (audioRef.current) {
+      audioRef.current.currentTime = Math.max(0, audioRef.current.currentTime - 10);
+      setProgress(audioRef.current.currentTime);
+    }
+  };
+
+  const handleSkipForward = () => {
+    if (audioRef.current && currentTrack) {
+      audioRef.current.currentTime = Math.min(currentTrack.duration, audioRef.current.currentTime + 10);
+      setProgress(audioRef.current.currentTime);
     }
   };
 
@@ -414,9 +447,9 @@ export default function App() {
     <div className="h-[100dvh] bg-[#030303] text-white flex flex-col font-sans selection:bg-red-500/30 relative overflow-hidden">
       {/* Global Wallpaper */}
       {globalWallpaper && (
-        <div className="absolute inset-0 z-0">
-          <img src={globalWallpaper} alt="Wallpaper" className="w-full h-full object-cover opacity-40" />
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-3xl" />
+        <div className="absolute inset-0 z-0 overflow-hidden">
+          <img src={globalWallpaper} alt="Wallpaper" className="w-full h-full object-cover opacity-50 blur-md scale-110" />
+          <div className="absolute inset-0 bg-black/50" />
         </div>
       )}
 
@@ -534,52 +567,60 @@ export default function App() {
                 </div>
 
                 {/* Controls */}
-                <div className="flex items-center justify-between w-full px-2">
-                  <button onClick={() => setShuffle(!shuffle)} className={cn("p-3 rounded-full transition-colors", shuffle ? "text-red-400 bg-red-400/10" : "text-white/40 hover:text-white hover:bg-white/5")}>
-                    <Shuffle className="w-5 h-5" />
+                <div className="flex items-center justify-between w-full px-0 sm:px-2">
+                  <button onClick={() => setShuffle(!shuffle)} className={cn("p-2 sm:p-3 rounded-full transition-colors", shuffle ? "text-red-400 bg-red-400/10" : "text-white/40 hover:text-white hover:bg-white/5")}>
+                    <Shuffle className="w-4 h-4 sm:w-5 sm:h-5" />
                   </button>
-                  <button onClick={handlePrev} className="text-white/80 hover:text-white p-3 hover:bg-white/5 rounded-full transition-colors">
-                    <SkipBack className="w-8 h-8 fill-current" />
-                  </button>
-                  <button 
-                    onClick={() => setIsPlaying(!isPlaying)} 
-                    className="w-20 h-20 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shadow-[0_0_30px_rgba(255,255,255,0.3)]"
-                  >
-                    {isPlaying ? <Pause className="w-8 h-8 fill-current" /> : <Play className="w-8 h-8 fill-current ml-1" />}
-                  </button>
-                  <button onClick={handleNext} className="text-white/80 hover:text-white p-3 hover:bg-white/5 rounded-full transition-colors">
-                    <SkipForward className="w-8 h-8 fill-current" />
-                  </button>
-                  <button onClick={() => setRepeat(r => r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')} className={cn("p-3 rounded-full transition-colors", repeat !== 'off' ? "text-red-400 bg-red-400/10" : "text-white/40 hover:text-white hover:bg-white/5")}>
-                    {repeat === 'one' ? <Repeat1 className="w-5 h-5" /> : <Repeat className="w-5 h-5" />}
+                  <div className="flex items-center gap-1 sm:gap-2 md:gap-4">
+                    <button onClick={handleSkipBackward} className="text-white/80 hover:text-white p-1 sm:p-2 hover:bg-white/5 rounded-full transition-colors" title="Skip 10s Backward">
+                      <Rewind className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
+                    </button>
+                    <button onClick={handlePrev} className="text-white/80 hover:text-white p-1 sm:p-2 hover:bg-white/5 rounded-full transition-colors">
+                      <SkipBack className="w-6 h-6 sm:w-8 sm:h-8 fill-current" />
+                    </button>
+                    <button 
+                      onClick={() => setIsPlaying(!isPlaying)} 
+                      className="w-14 h-14 sm:w-20 sm:h-20 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-transform shadow-[0_0_30px_rgba(255,255,255,0.3)] shrink-0 mx-1 sm:mx-0"
+                    >
+                      {isPlaying ? <Pause className="w-6 h-6 sm:w-8 sm:h-8 fill-current" /> : <Play className="w-6 h-6 sm:w-8 sm:h-8 fill-current ml-1" />}
+                    </button>
+                    <button onClick={handleNext} className="text-white/80 hover:text-white p-1 sm:p-2 hover:bg-white/5 rounded-full transition-colors">
+                      <SkipForward className="w-6 h-6 sm:w-8 sm:h-8 fill-current" />
+                    </button>
+                    <button onClick={handleSkipForward} className="text-white/80 hover:text-white p-1 sm:p-2 hover:bg-white/5 rounded-full transition-colors" title="Skip 10s Forward">
+                      <FastForward className="w-5 h-5 sm:w-6 sm:h-6 fill-current" />
+                    </button>
+                  </div>
+                  <button onClick={() => setRepeat(r => r === 'off' ? 'all' : r === 'all' ? 'one' : 'off')} className={cn("p-2 sm:p-3 rounded-full transition-colors", repeat !== 'off' ? "text-red-400 bg-red-400/10" : "text-white/40 hover:text-white hover:bg-white/5")}>
+                    {repeat === 'one' ? <Repeat1 className="w-4 h-4 sm:w-5 sm:h-5" /> : <Repeat className="w-4 h-4 sm:w-5 sm:h-5" />}
                   </button>
                 </div>
 
                 {/* Volume & Effects */}
-                <div className="flex items-center justify-between w-full gap-6 pt-6 border-t border-white/10">
-                  <div className="flex items-center gap-3 flex-1">
+                <div className="flex items-center justify-between w-full gap-4 sm:gap-6 pt-6 border-t border-white/10">
+                  <div className="flex items-center gap-2 sm:gap-3 flex-1">
                     <button onClick={() => setIsMuted(!isMuted)} className="text-white/60 hover:text-white">
-                      {isMuted || volume === 0 ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                      {isMuted || volume === 0 ? <VolumeX className="w-4 h-4 sm:w-5 sm:h-5" /> : <Volume2 className="w-4 h-4 sm:w-5 sm:h-5" />}
                     </button>
                     <div className="flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer relative group" onClick={handleVolumeClick}>
                       <div className="absolute top-0 left-0 h-full bg-white rounded-full group-hover:bg-red-500 transition-colors" style={{ width: `${isMuted ? 0 : volume * 100}%` }} />
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
-                    <button onClick={() => changeTrackAnimation('none')} className={cn("p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'none' ? "bg-white/20 text-white" : "text-white/40 hover:text-white")} title="No Effect">
-                      <X className="w-4 h-4" />
+                  <div className="flex items-center gap-0.5 sm:gap-1 bg-white/5 p-1 rounded-xl border border-white/5">
+                    <button onClick={() => changeTrackAnimation('none')} className={cn("p-1.5 sm:p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'none' ? "bg-white/20 text-white" : "text-white/40 hover:text-white")} title="No Effect">
+                      <X className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
-                    <button onClick={() => changeTrackAnimation('light')} className={cn("p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'light' ? "bg-yellow-500/20 text-yellow-400" : "text-white/40 hover:text-white")} title="Light Effect">
-                      <Sun className="w-4 h-4" />
+                    <button onClick={() => changeTrackAnimation('light')} className={cn("p-1.5 sm:p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'light' ? "bg-yellow-500/20 text-yellow-400" : "text-white/40 hover:text-white")} title="Light Effect">
+                      <Sun className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
-                    <button onClick={() => changeTrackAnimation('cloud')} className={cn("p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'cloud' ? "bg-white/20 text-white" : "text-white/40 hover:text-white")} title="Cloud Effect">
-                      <Cloud className="w-4 h-4" />
+                    <button onClick={() => changeTrackAnimation('cloud')} className={cn("p-1.5 sm:p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'cloud' ? "bg-white/20 text-white" : "text-white/40 hover:text-white")} title="Cloud Effect">
+                      <Cloud className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
-                    <button onClick={() => changeTrackAnimation('wind')} className={cn("p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'wind' ? "bg-gray-400/20 text-gray-300" : "text-white/40 hover:text-white")} title="Wind Effect">
-                      <Wind className="w-4 h-4" />
+                    <button onClick={() => changeTrackAnimation('wind')} className={cn("p-1.5 sm:p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'wind' ? "bg-gray-400/20 text-gray-300" : "text-white/40 hover:text-white")} title="Wind Effect">
+                      <Wind className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
-                    <button onClick={() => changeTrackAnimation('water')} className={cn("p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'water' ? "bg-blue-500/20 text-blue-400" : "text-white/40 hover:text-white")} title="Water Effect">
-                      <Droplets className="w-4 h-4" />
+                    <button onClick={() => changeTrackAnimation('water')} className={cn("p-1.5 sm:p-2 rounded-lg transition-colors", currentTrack.bgAnimation === 'water' ? "bg-blue-500/20 text-blue-400" : "text-white/40 hover:text-white")} title="Water Effect">
+                      <Droplets className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                     </button>
                   </div>
                 </div>
@@ -626,16 +667,32 @@ export default function App() {
             </div>
 
             {activeTab === 'online' && (
-              <form onSubmit={searchAudius} className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                <input 
-                  type="text" 
-                  placeholder="Search for songs, artists..." 
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="w-full bg-white/5 border border-white/10 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
-                />
-              </form>
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center gap-2 px-1">
+                  <button 
+                    onClick={() => setOnlineSource('audius')}
+                    className={cn("px-3 py-1 text-xs font-medium rounded-full transition-colors", onlineSource === 'audius' ? "bg-purple-500/20 text-purple-400" : "bg-white/5 text-white/60 hover:text-white")}
+                  >
+                    Audius
+                  </button>
+                  <button 
+                    onClick={() => setOnlineSource('jamendo')}
+                    className={cn("px-3 py-1 text-xs font-medium rounded-full transition-colors", onlineSource === 'jamendo' ? "bg-pink-500/20 text-pink-400" : "bg-white/5 text-white/60 hover:text-white")}
+                  >
+                    Jamendo
+                  </button>
+                </div>
+                <form onSubmit={searchOnline} className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                  <input 
+                    type="text" 
+                    placeholder={`Search on ${onlineSource === 'audius' ? 'Audius' : 'Jamendo'}...`} 
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                  />
+                </form>
+              </div>
             )}
           </div>
           
@@ -706,7 +763,7 @@ export default function App() {
                 {isSearching ? (
                   <div className="flex flex-col items-center justify-center h-40 text-white/40 gap-3">
                     <Loader2 className="w-8 h-8 animate-spin opacity-50" />
-                    <p>Searching Audius...</p>
+                    <p>Searching {onlineSource === 'audius' ? 'Audius' : 'Jamendo'}...</p>
                   </div>
                 ) : searchResults.length > 0 ? (
                   <AnimatePresence>

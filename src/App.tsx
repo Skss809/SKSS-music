@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Image as ImageIcon, Plus, Music, Video, Trash2, Shuffle, Repeat, Repeat1, Disc3, Cloud, Wind, Droplets, Sun, Monitor, X, ChevronDown, ListMusic, Search, Globe, Library, Loader2, Download, Check, Rewind, FastForward } from 'lucide-react';
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Image as ImageIcon, Plus, Music, Video, Trash2, Shuffle, Repeat, Repeat1, Disc3, Cloud, Wind, Droplets, Sun, Monitor, X, ChevronDown, ListMusic, Search, Globe, Library, Loader2, Download, Check, Rewind, FastForward, Home, TrendingUp, History, Youtube, Sparkles, RefreshCw } from 'lucide-react';
 import { get, set } from 'idb-keyval';
 import { formatTime, cn } from './lib/utils';
 import { Track, BgAnimation } from './types';
@@ -83,12 +83,17 @@ export default function App() {
   const [isPlayerOpen, setIsPlayerOpen] = useState(false);
   const [isLoaded, setIsLoaded] = useState(false);
   
-  const [activeTab, setActiveTab] = useState<'local' | 'online'>('local');
-  const [onlineSource, setOnlineSource] = useState<'audius' | 'jamendo'>('audius');
+  const [activeTab, setActiveTab] = useState<'home' | 'local' | 'online'>('home');
+  const [onlineSource, setOnlineSource] = useState<'audius' | 'jamendo' | 'youtube'>('audius');
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Track[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [downloadingIds, setDownloadingIds] = useState<Set<string>>(new Set());
+
+  const [playHistory, setPlayHistory] = useState<Track[]>([]);
+  const [trendingTracks, setTrendingTracks] = useState<Track[]>([]);
+  const [suggestedTracks, setSuggestedTracks] = useState<Track[]>([]);
+  const [isLoadingHome, setIsLoadingHome] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +107,10 @@ export default function App() {
       if (val) setGlobalWallpaper(val);
     });
     
+    get('play-history').then((history: any[]) => {
+      if (history) setPlayHistory(history);
+    });
+
     get('saved-tracks').then((savedTracks: any[]) => {
       if (savedTracks && savedTracks.length > 0) {
         const restored = savedTracks.map(t => ({
@@ -132,6 +141,77 @@ export default function App() {
     }));
     set('saved-tracks', tracksToSave);
   }, [tracks, isLoaded]);
+
+  const [isRefreshingTrending, setIsRefreshingTrending] = useState(false);
+
+  const fetchTrending = async (isRefresh = false) => {
+    if (isRefresh) setIsRefreshingTrending(true);
+    try {
+      const offset = isRefresh ? Math.floor(Math.random() * 50) : 0;
+      const trendRes = await fetch(`https://api.jamendo.com/v3.0/tracks/?client_id=c9cb2a0a&format=json&limit=10&order=popularity_total&offset=${offset}`);
+      const trendData = await trendRes.json();
+      const trending: Track[] = trendData.results.map((t: any) => ({
+        id: `jamendo-${t.id}`,
+        title: t.name,
+        artist: t.artist_name,
+        duration: t.duration,
+        audioUrl: t.audio,
+        coverUrl: t.image,
+        isVideo: false,
+        isOnline: true,
+        bgAnimation: 'none'
+      }));
+      setTrendingTracks(trending);
+    } catch (e) {
+      console.error("Failed to fetch trending data", e);
+    } finally {
+      if (isRefresh) setIsRefreshingTrending(false);
+    }
+  };
+
+  useEffect(() => {
+    const fetchHomeData = async () => {
+      setIsLoadingHome(true);
+      try {
+        await fetchTrending();
+
+        const sugRes = await fetch('https://api.jamendo.com/v3.0/tracks/?client_id=c9cb2a0a&format=json&limit=10&tags=electronic|indie|pop&order=popularity_month');
+        const sugData = await sugRes.json();
+        const suggestions: Track[] = sugData.results.map((t: any) => ({
+          id: `jamendo-${t.id}`,
+          title: t.name,
+          artist: t.artist_name,
+          duration: t.duration,
+          audioUrl: t.audio,
+          coverUrl: t.image,
+          isVideo: false,
+          isOnline: true,
+          bgAnimation: 'none'
+        }));
+        setSuggestedTracks(suggestions);
+      } catch (e) {
+        console.error("Failed to fetch home data", e);
+      } finally {
+        setIsLoadingHome(false);
+      }
+    };
+    fetchHomeData();
+  }, []);
+
+  const addToHistory = (track: Track) => {
+    setPlayHistory(prev => {
+      const filtered = prev.filter(t => t.id !== track.id);
+      const newHistory = [track, ...filtered].slice(0, 20);
+      set('play-history', newHistory);
+      return newHistory;
+    });
+  };
+
+  useEffect(() => {
+    if (currentTrack && isPlaying) {
+      addToHistory(currentTrack);
+    }
+  }, [currentTrack, isPlaying]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -357,12 +437,16 @@ export default function App() {
   };
 
   const addOnlineTrack = (track: Track) => {
-    setTracks(prev => [...prev, track]);
-    if (tracks.length === 0) {
-      setCurrentIndex(0);
-      setIsPlaying(true);
-      setIsPlayerOpen(true);
-    }
+    setTracks(prev => {
+      const exists = prev.findIndex(t => t.id === track.id);
+      if (exists >= 0) {
+        setTimeout(() => playTrack(exists), 0);
+        return prev;
+      }
+      const newTracks = [...prev, track];
+      setTimeout(() => playTrack(newTracks.length - 1), 0);
+      return newTracks;
+    });
   };
 
   const handleSkipBackward = () => {
@@ -638,66 +722,244 @@ export default function App() {
         <div className="w-full md:w-1/2 flex flex-col bg-black/20 backdrop-blur-sm relative z-10 pb-24 md:pb-0">
           <div className="p-4 md:p-6 flex flex-col gap-4 border-b border-white/5 sticky top-0 bg-black/40 backdrop-blur-xl z-20">
             <div className="flex items-center justify-between">
-              <div className="flex bg-white/10 p-1 rounded-full">
+              <div className="flex bg-white/10 p-1 rounded-full overflow-x-auto hide-scrollbar">
+                <button 
+                  onClick={() => setActiveTab('home')}
+                  className={cn("flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap", activeTab === 'home' ? "bg-white text-black shadow-md" : "text-white/60 hover:text-white")}
+                >
+                  <Home className="w-4 h-4" />
+                  <span className="hidden sm:inline">Home</span>
+                </button>
                 <button 
                   onClick={() => setActiveTab('local')}
-                  className={cn("flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all", activeTab === 'local' ? "bg-white text-black shadow-md" : "text-white/60 hover:text-white")}
+                  className={cn("flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap", activeTab === 'local' ? "bg-white text-black shadow-md" : "text-white/60 hover:text-white")}
                 >
                   <Library className="w-4 h-4" />
-                  My Library
+                  <span className="hidden sm:inline">Library</span>
                 </button>
                 <button 
                   onClick={() => setActiveTab('online')}
-                  className={cn("flex items-center gap-2 px-4 py-1.5 rounded-full text-sm font-medium transition-all", activeTab === 'online' ? "bg-white text-black shadow-md" : "text-white/60 hover:text-white")}
+                  className={cn("flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full text-sm font-medium transition-all whitespace-nowrap", activeTab === 'online' ? "bg-white text-black shadow-md" : "text-white/60 hover:text-white")}
                 >
                   <Globe className="w-4 h-4" />
-                  Discover
+                  <span className="hidden sm:inline">Discover</span>
                 </button>
               </div>
               
               {activeTab === 'local' && (
                 <button 
                   onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-4 py-1.5 rounded-full transition-colors font-medium text-sm"
+                  className="flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white px-3 sm:px-4 py-1.5 rounded-full transition-colors font-medium text-sm whitespace-nowrap ml-2"
                 >
                   <Plus className="w-4 h-4" />
-                  Add Local
+                  <span className="hidden sm:inline">Add Local</span>
                 </button>
               )}
             </div>
 
             {activeTab === 'online' && (
               <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2 px-1">
+                <div className="flex items-center gap-2 px-1 overflow-x-auto hide-scrollbar pb-1">
                   <button 
                     onClick={() => setOnlineSource('audius')}
-                    className={cn("px-3 py-1 text-xs font-medium rounded-full transition-colors", onlineSource === 'audius' ? "bg-purple-500/20 text-purple-400" : "bg-white/5 text-white/60 hover:text-white")}
+                    className={cn("px-3 py-1 text-xs font-medium rounded-full transition-colors whitespace-nowrap", onlineSource === 'audius' ? "bg-purple-500/20 text-purple-400" : "bg-white/5 text-white/60 hover:text-white")}
                   >
                     Audius
                   </button>
                   <button 
                     onClick={() => setOnlineSource('jamendo')}
-                    className={cn("px-3 py-1 text-xs font-medium rounded-full transition-colors", onlineSource === 'jamendo' ? "bg-pink-500/20 text-pink-400" : "bg-white/5 text-white/60 hover:text-white")}
+                    className={cn("px-3 py-1 text-xs font-medium rounded-full transition-colors whitespace-nowrap", onlineSource === 'jamendo' ? "bg-pink-500/20 text-pink-400" : "bg-white/5 text-white/60 hover:text-white")}
                   >
                     Jamendo
                   </button>
+                  <button 
+                    onClick={() => setOnlineSource('youtube')}
+                    className={cn("px-3 py-1 text-xs font-medium rounded-full transition-colors whitespace-nowrap flex items-center gap-1", onlineSource === 'youtube' ? "bg-red-500/20 text-red-400" : "bg-white/5 text-white/60 hover:text-white")}
+                  >
+                    <Youtube className="w-3 h-3" /> YouTube
+                  </button>
                 </div>
-                <form onSubmit={searchOnline} className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
-                  <input 
-                    type="text" 
-                    placeholder={`Search on ${onlineSource === 'audius' ? 'Audius' : 'Jamendo'}...`} 
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="w-full bg-white/5 border border-white/10 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
-                  />
-                </form>
+                {onlineSource === 'youtube' ? (
+                  <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-center">
+                    <Youtube className="w-8 h-8 text-red-500 mx-auto mb-2 opacity-80" />
+                    <h3 className="text-sm font-medium text-white mb-1">YouTube Integration</h3>
+                    <p className="text-xs text-white/60">YouTube search requires a dedicated API key or backend proxy to bypass CORS restrictions. This feature is a placeholder.</p>
+                  </div>
+                ) : (
+                  <form onSubmit={searchOnline} className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/40" />
+                    <input 
+                      type="text" 
+                      placeholder={`Search on ${onlineSource === 'audius' ? 'Audius' : 'Jamendo'}...`} 
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full bg-white/5 border border-white/10 rounded-full py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/40 focus:outline-none focus:ring-2 focus:ring-white/20 transition-all"
+                    />
+                  </form>
+                )}
               </div>
             )}
           </div>
           
           <div className="flex-1 overflow-y-auto p-2 md:p-4 space-y-1">
-            {activeTab === 'local' ? (
+            {activeTab === 'home' ? (
+              <div className="flex flex-col gap-8 pb-8">
+                {/* Play History */}
+                {playHistory.length > 0 && (
+                  <div className="flex flex-col gap-3">
+                    <h3 className="text-lg font-semibold px-2 flex items-center gap-2">
+                      <History className="w-5 h-5 text-white/60" /> Recently Played
+                    </h3>
+                    <div className="flex overflow-x-auto gap-4 pb-4 px-2 hide-scrollbar">
+                      {playHistory.map((track, idx) => (
+                        <div key={`history-${track.id}-${idx}`} onClick={() => addOnlineTrack(track)} className="flex flex-col gap-2 w-32 shrink-0 cursor-pointer group">
+                          <div className="w-32 h-32 rounded-xl overflow-hidden bg-white/5 relative">
+                            {track.coverUrl ? (
+                              <img src={track.coverUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center"><Music className="w-8 h-8 text-white/40" /></div>
+                            )}
+                            <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                              <Play className="w-8 h-8 fill-white" />
+                            </div>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-sm font-medium truncate group-hover:text-white transition-colors">{track.title}</span>
+                            <span className="text-xs text-white/50 truncate">{track.artist}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Trending */}
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between px-2">
+                    <h3 className="text-lg font-semibold flex items-center gap-2">
+                      <TrendingUp className="w-5 h-5 text-white/60" /> Trending Now
+                    </h3>
+                    <button 
+                      onClick={() => fetchTrending(true)}
+                      disabled={isRefreshingTrending || isLoadingHome}
+                      className="p-1.5 hover:bg-white/10 rounded-full transition-colors text-white/60 hover:text-white disabled:opacity-50"
+                      title="Refresh Trending"
+                    >
+                      <RefreshCw className={cn("w-4 h-4", (isRefreshingTrending || isLoadingHome) && "animate-spin")} />
+                    </button>
+                  </div>
+                  {isLoadingHome && trendingTracks.length === 0 ? (
+                    <div className="flex items-center justify-center h-32">
+                      <Loader2 className="w-8 h-8 animate-spin text-white/40" />
+                    </div>
+                  ) : (
+                    <div className="flex overflow-x-auto gap-4 pb-4 px-2 hide-scrollbar">
+                      {trendingTracks.map((track, idx) => {
+                        const isDownloaded = tracks.some(t => t.title === track.title && t.artist === track.artist && !t.isOnline);
+                        return (
+                          <div key={`trend-${track.id}-${idx}`} className="flex flex-col gap-2 w-32 shrink-0 group relative">
+                            <div 
+                              onClick={() => addOnlineTrack(track)}
+                              className="w-32 h-32 rounded-xl overflow-hidden bg-white/5 relative cursor-pointer"
+                            >
+                              {track.coverUrl ? (
+                                <img src={track.coverUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center"><Music className="w-8 h-8 text-white/40" /></div>
+                              )}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Play className="w-8 h-8 fill-white" />
+                              </div>
+                            </div>
+                            <div className="flex flex-col cursor-pointer" onClick={() => addOnlineTrack(track)}>
+                              <span className="text-sm font-medium truncate group-hover:text-white transition-colors">{track.title}</span>
+                              <span className="text-xs text-white/50 truncate">{track.artist}</span>
+                            </div>
+                            <button 
+                              onClick={(e) => !isDownloaded && downloadTrack(e, track)}
+                              disabled={downloadingIds.has(track.id) || isDownloaded}
+                              className={cn(
+                                "absolute top-2 right-2 p-1.5 rounded-full bg-black/40 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all",
+                                isDownloaded 
+                                  ? "text-green-400 opacity-100" 
+                                  : "text-white hover:bg-black/60 disabled:opacity-100 disabled:text-white"
+                              )}
+                              title={isDownloaded ? "Downloaded" : "Download Offline"}
+                            >
+                              {downloadingIds.has(track.id) ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                              ) : isDownloaded ? (
+                                <Check className="w-4 h-4" />
+                              ) : (
+                                <Download className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Suggestions */}
+                <div className="flex flex-col gap-3">
+                  <h3 className="text-lg font-semibold px-2 flex items-center gap-2">
+                    <Sparkles className="w-5 h-5 text-white/60" /> Suggested for You
+                  </h3>
+                  {isLoadingHome ? (
+                    <div className="flex items-center justify-center h-32">
+                      <Loader2 className="w-8 h-8 animate-spin text-white/40" />
+                    </div>
+                  ) : (
+                    <div className="flex overflow-x-auto gap-4 pb-4 px-2 hide-scrollbar">
+                      {suggestedTracks.map((track, idx) => {
+                        const isDownloaded = tracks.some(t => t.title === track.title && t.artist === track.artist && !t.isOnline);
+                        return (
+                          <div key={`sug-${track.id}-${idx}`} className="flex flex-col gap-2 w-32 shrink-0 group relative">
+                            <div 
+                              onClick={() => addOnlineTrack(track)}
+                              className="w-32 h-32 rounded-xl overflow-hidden bg-white/5 relative cursor-pointer"
+                            >
+                              {track.coverUrl ? (
+                                <img src={track.coverUrl} alt="" className="w-full h-full object-cover group-hover:scale-105 transition-transform" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center"><Music className="w-8 h-8 text-white/40" /></div>
+                              )}
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Play className="w-8 h-8 fill-white" />
+                              </div>
+                            </div>
+                            <div className="flex flex-col cursor-pointer" onClick={() => addOnlineTrack(track)}>
+                              <span className="text-sm font-medium truncate group-hover:text-white transition-colors">{track.title}</span>
+                              <span className="text-xs text-white/50 truncate">{track.artist}</span>
+                            </div>
+                            <button 
+                              onClick={(e) => !isDownloaded && downloadTrack(e, track)}
+                              disabled={downloadingIds.has(track.id) || isDownloaded}
+                              className={cn(
+                                "absolute top-2 right-2 p-1.5 rounded-full bg-black/40 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all",
+                                isDownloaded 
+                                  ? "text-green-400 opacity-100" 
+                                  : "text-white hover:bg-black/60 disabled:opacity-100 disabled:text-white"
+                              )}
+                              title={isDownloaded ? "Downloaded" : "Download Offline"}
+                            >
+                              {downloadingIds.has(track.id) ? (
+                                <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                              ) : isDownloaded ? (
+                                <Check className="w-4 h-4" />
+                              ) : (
+                                <Download className="w-4 h-4" />
+                              )}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : activeTab === 'local' ? (
               <>
                 <AnimatePresence>
                   {tracks.map((track, index) => (

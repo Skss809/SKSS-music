@@ -13,3 +13,9 @@ export interface Track {
   bgAnimation?: BgAnimation;
   isOnline?: boolean;
 }
+
+export interface Playlist {
+  id: string;
+  name: string;
+  tracks: Track[];
+}

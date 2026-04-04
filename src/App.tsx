@@ -280,14 +280,19 @@ export default function App() {
   }, [currentTrack, isPlaying]);
 
   useEffect(() => {
-    if (audioRef.current) {
+    if (audioRef.current && currentTrack?.audioUrl) {
+      // Only update src if it's different to prevent interrupting playback
+      if (audioRef.current.getAttribute('src') !== currentTrack.audioUrl) {
+        audioRef.current.src = currentTrack.audioUrl;
+        audioRef.current.setAttribute('src', currentTrack.audioUrl);
+      }
       if (isPlaying) {
         audioRef.current.play().catch(() => setIsPlaying(false));
       } else {
         audioRef.current.pause();
       }
     }
-  }, [isPlaying, currentIndex]);
+  }, [isPlaying, currentTrack]);
 
   useEffect(() => {
     if (audioRef.current) {
@@ -411,6 +416,7 @@ export default function App() {
     // Force immediate playback for background execution
     if (audioRef.current && activeTracks[nextIndex]?.audioUrl) {
       audioRef.current.src = activeTracks[nextIndex].audioUrl!;
+      audioRef.current.setAttribute('src', activeTracks[nextIndex].audioUrl!);
       audioRef.current.play().catch(() => setIsPlaying(false));
       setIsPlaying(true);
     }
@@ -432,6 +438,7 @@ export default function App() {
       // Force immediate playback for background execution
       if (audioRef.current && activeTracks[prevIndex]?.audioUrl) {
         audioRef.current.src = activeTracks[prevIndex].audioUrl!;
+        audioRef.current.setAttribute('src', activeTracks[prevIndex].audioUrl!);
         audioRef.current.play().catch(() => setIsPlaying(false));
         setIsPlaying(true);
       }
@@ -701,15 +708,12 @@ export default function App() {
       <input type="file" ref={wallpaperInputRef} onChange={handleWallpaperUpload} accept="image/*" className="hidden" />
 
       {/* Audio Element */}
-      {currentTrack && (
-        <audio
-          ref={audioRef}
-          src={currentTrack.audioUrl}
-          onTimeUpdate={handleTimeUpdate}
-          onEnded={handleEnded}
-          onLoadedMetadata={updatePositionState}
-        />
-      )}
+      <audio
+        ref={audioRef}
+        onTimeUpdate={handleTimeUpdate}
+        onEnded={handleEnded}
+        onLoadedMetadata={updatePositionState}
+      />
 
       {/* Header */}
       <header className="h-14 px-4 md:px-6 flex items-center justify-between border-b border-white/10 bg-black/20 backdrop-blur-md z-10 relative shrink-0">
